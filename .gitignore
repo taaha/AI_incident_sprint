@@ -1,2 +1,5 @@
 # Large, reproducible local trajectory exports.
 data/whistleblower/
+
+# Local service configuration and credentials.
+.env
