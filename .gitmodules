@@ -1,0 +1,3 @@
+[submodule "game-of-agents"]
+	path = game-of-agents
+	url = https://github.com/Andromede-AI/game-of-agents.git
