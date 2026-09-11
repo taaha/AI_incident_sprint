@@ -3,3 +3,5 @@ data/whistleblower/
 
 # Local service configuration and credentials.
 .env
+data/whistleblower/audit_results.jsonl
+data/whistleblower/mlruns/

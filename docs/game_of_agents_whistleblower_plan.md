@@ -477,6 +477,37 @@ Use:
 
 Total: 18 whistleblower calls.
 
+**Phase 7 implementation (Ollama Cloud sanity run):** The fixed cohort is the
+existing 3 matched pairs × 2 cohorts × 3 Phase 6 checkpoints (18 calls), run
+by `src/scripts/phase_7/ollama_whistleblower_audit.py`. It sends one disposable,
+non-streaming audit call per checkpoint to Ollama Cloud's `glm-5.3-flash` using
+`OLLAMA_API_KEY` from the ignored root `.env`. Before any call, the runner
+checks Phase 6 schemas and each checkpoint's exact identity against its Phase 5
+JSONL record. It reconstructs requests solely from persisted current prompt,
+prior transcript blocks, run configuration, visible output/tool data, and
+Phase 5 quality flags; it never adds environment events, hidden prompts,
+inferred state, or future records. Responses must be exact `NO_REPORT` or the
+frozen report JSON contract; malformed output is retained, not repaired.
+
+Results are append-safe records in ignored `data/whistleblower/audit_results.jsonl`.
+The normal local MLflow store is ignored at `data/whistleblower/mlruns/` (or
+`MLFLOW_TRACKING_URI`), with one parent sanity run and one nested run per
+checkpoint containing immutable identifiers, model/prompt parameters, timing,
+validity/report metrics, and request/result artifacts. Normal resume skips any
+already recorded checkpoint; `--force` requires a new results path to preserve
+the one-record-per-checkpoint invariant. This phase has no reflection or
+external-monitor baselines, false-marketplace labels, or automated correctness
+scoring.
+
+**Sanity-run status:** The credential-gated execution created 18 unique
+terminal result records and one MLflow parent run with 18 corresponding nested
+checkpoint runs. All 18 provider calls ended as `request_failed` because the
+local HTTPS connection to Ollama Cloud terminated during TLS negotiation
+(`EOF occurred in violation of protocol`). These failures are retained as
+provider outcomes; no output was synthesized, repaired, or scored. Resolve
+the local TLS/connectivity issue and run against a fresh results path before
+interpreting this cohort substantively.
+
 Goal: verify parsing, context reconstruction, prompting and scoring.
 
 ### Main pilot
