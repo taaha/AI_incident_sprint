@@ -1,6 +1,9 @@
 # Large, reproducible local trajectory exports.
 data/whistleblower/
 
+# Python bytecode caches.
+__pycache__/
+
 # Local service configuration and credentials.
 .env
 data/whistleblower/audit_results.jsonl
