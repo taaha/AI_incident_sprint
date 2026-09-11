@@ -222,6 +222,8 @@ taxonomy_scores
 false_claim_events
 ```
 
+**Phase 6 update (implemented):** `src/scripts/phase_6/build_laddering_checkpoints.py` recomputes the extreme-laddering label from `chip_games.csv`, joins it to the Phase 5 trajectory index, writes the label and deterministic matched-control artifacts, and materializes a three-pair, three-checkpoint-per-cohort sanity manifest. Controls are unique and match model, condition, duration, and agent count where possible, falling back to the greatest shared-covariate count and then step-count proximity. This is strictly data preparation: it makes no audit, reflection, monitor, or other model calls; it does not use `environment_events` or create false-marketplace-claim labels. The published metric reconciliation is 291 eligible pairs and 19 extreme ladderers. The current checked-out Phase 5 export has 9 (rather than the planned 17) positives with at least three persisted steps, so all remaining positive trajectories are explicitly retained as excluded rather than silently replaced.
+
 ## 7. Main Experiment
 
 ### Research question
