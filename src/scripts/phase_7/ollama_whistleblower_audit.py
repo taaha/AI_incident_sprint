@@ -12,8 +12,6 @@ import csv
 import json
 import os
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -39,6 +37,10 @@ or one JSON object with exactly these fields: report (true), category (string), 
 
 class ValidationError(ValueError):
     """A persisted artifact is unsuitable for a live audit request."""
+
+
+class OllamaAuthenticationError(RuntimeError):
+    """Ollama Cloud rejected the configured API key."""
 
 
 @dataclass(frozen=True)
@@ -186,27 +188,44 @@ def load_dotenv_key(env_path: Path, key: str = "OLLAMA_API_KEY") -> str | None:
 
 
 def ollama_chat(request: dict[str, Any], api_key: str, timeout_seconds: float = 60, retries: int = 2) -> tuple[str, dict[str, Any]]:
-    """Call Ollama Cloud, retrying only transient HTTP/network failures."""
-    payload = json.dumps(request).encode("utf-8")
+    """Call Ollama Cloud using HTTPX, retrying only transient failures.
+
+    Disabling environment-derived proxy settings keeps the transport independent
+    of any unrelated shell proxy or TLS configuration.
+    """
+    try:
+        import httpx
+    except ImportError as error:
+        raise RuntimeError("httpx is required for Ollama Cloud requests") from error
     last_error: Exception | None = None
-    for attempt in range(retries + 1):
-        call = urllib.request.Request(OLLAMA_CHAT_URL, data=payload, method="POST", headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(call, timeout=timeout_seconds) as response:
-                body = json.loads(response.read().decode("utf-8"))
-            content = body.get("message", {}).get("content")
-            if not isinstance(content, str):
-                raise RuntimeError("provider response did not contain message.content")
-            metadata = {key: value for key, value in body.items() if key != "message"}
-            return content, metadata
-        except urllib.error.HTTPError as error:
-            last_error = error
-            if error.code not in {408, 429, 500, 502, 503, 504}:
-                break
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, RuntimeError) as error:
-            last_error = error
-        if attempt < retries:
-            time.sleep(0.5 * (2 ** attempt))
+    timeout = httpx.Timeout(timeout_seconds, connect=min(timeout_seconds, 20))
+    with httpx.Client(timeout=timeout, http2=False, trust_env=False) as client:
+        for attempt in range(retries + 1):
+            try:
+                response = client.post(
+                    OLLAMA_CHAT_URL,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json=request,
+                )
+                response.raise_for_status()
+                body = response.json()
+                content = body.get("message", {}).get("content")
+                if not isinstance(content, str):
+                    raise RuntimeError("provider response did not contain message.content")
+                metadata = {key: value for key, value in body.items() if key != "message"}
+                return content, metadata
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code in {401, 403}:
+                    raise OllamaAuthenticationError(
+                        "Ollama Cloud rejected OLLAMA_API_KEY; create or copy a current API key from ollama.com/settings/keys"
+                    ) from error
+                last_error = error
+                if error.response.status_code not in {408, 429, 500, 502, 503, 504}:
+                    break
+            except (httpx.HTTPError, json.JSONDecodeError, RuntimeError) as error:
+                last_error = error
+            if attempt < retries:
+                time.sleep(0.5 * (2 ** attempt))
     assert last_error is not None
     raise RuntimeError(f"Ollama request failed: {last_error}") from last_error
 
@@ -277,6 +296,22 @@ class MLflowLogger:
             self.mlflow.log_metrics({"elapsed_seconds": result["elapsed_seconds"], "output_valid": float(result["parse_result"]["valid"]), "reported": float(result["parse_result"]["kind"] == "report")})
             self.mlflow.log_dict(request, "request.json")
             self.mlflow.log_dict(result, "result.json")
+            # A root LLM span is what populates MLflow's GenAI Traces view.
+            # The active nested run supplies the experiment/run association.
+            if hasattr(self.mlflow, "start_span"):
+                with self.mlflow.start_span(
+                    name="ollama.chat",
+                    span_type="LLM",
+                    attributes={
+                        "provider": "ollama_cloud",
+                        "model": result["request_config"]["model"],
+                        "checkpoint_id": result["checkpoint_id"],
+                        "pair_id": result["pair_id"],
+                        "cohort": result["cohort"],
+                    },
+                ) as span:
+                    span.set_inputs({"model": request["model"], "messages": request["messages"], "stream": False})
+                    span.set_outputs({"raw_response": result["raw_response"], "parse_result": result["parse_result"], "status": result["status"]})
 
     def close(self) -> None:
         if self.enabled and self.parent is not None:
@@ -296,7 +331,8 @@ def run_audit(data_dir: Path, results_path: Path, *, model: str = DEFAULT_MODEL,
     lock_path = _acquire_run_lock(results_path)
     try:
         existing = _existing_results(results_path)
-        logger = mlflow_logger or MLflowLogger(os.environ.get("MLFLOW_TRACKING_URI", str(data_dir / "mlruns")), "phase7_ollama_whistleblower_sanity")
+        default_tracking_uri = f"sqlite:///{(data_dir / 'mlflow.db').resolve()}"
+        logger = mlflow_logger or MLflowLogger(os.environ.get("MLFLOW_TRACKING_URI", default_tracking_uri), "phase7_ollama_whistleblower_sanity")
         logger.start_parent("phase7-sanity", {"model": model, "prompt_version": PROMPT_VERSION, "checkpoint_count": str(len(items)), "dataset_schema": PHASE5_SCHEMA_VERSION})
         written = skipped = 0
         try:
@@ -317,6 +353,18 @@ def run_audit(data_dir: Path, results_path: Path, *, model: str = DEFAULT_MODEL,
                     parsed = parse_response(raw_text)
                     status = "completed" if parsed["valid"] else "invalid_output"
                     error = None
+                except OllamaAuthenticationError as error_value:
+                    parsed, status, error = {"valid": False, "kind": None, "report": None, "parse_error": None}, "request_failed", str(error_value)
+                    result = {
+                        "schema_version": RESULT_SCHEMA_VERSION, "checkpoint_id": checkpoint_id, "pair_id": item.checkpoint["pair_id"], "cohort": item.checkpoint["cohort"],
+                        "run_id": item.checkpoint["run_id"], "agent_id": item.checkpoint["agent_id"], "decision_step_index": int(item.checkpoint["decision_step_index"]), "step_id": item.checkpoint["step_id"],
+                        "request_config": {"provider": "ollama_cloud", "url": OLLAMA_CHAT_URL, "model": model, "prompt_version": PROMPT_VERSION, "stream": False, "timeout_seconds": timeout_seconds, "retries": retries},
+                        "raw_response": raw_text, "parse_result": parsed, "provider_metadata": provider_metadata, "elapsed_seconds": time.monotonic() - started,
+                        "context_quality": item.record["data_quality"], "status": status, "error": error,
+                    }
+                    _append_result(results_path, result)
+                    logger.log_checkpoint(result, request)
+                    raise
                 except Exception as error_value:  # Capture provider errors as a terminal audited outcome.
                     parsed, status, error = {"valid": False, "kind": None, "report": None, "parse_error": None}, "request_failed", str(error_value)
                 result = {

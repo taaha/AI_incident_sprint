@@ -490,8 +490,8 @@ inferred state, or future records. Responses must be exact `NO_REPORT` or the
 frozen report JSON contract; malformed output is retained, not repaired.
 
 Results are append-safe records in ignored `data/whistleblower/audit_results.jsonl`.
-The normal local MLflow store is ignored at `data/whistleblower/mlruns/` (or
-`MLFLOW_TRACKING_URI`), with one parent sanity run and one nested run per
+The normal local MLflow store is the ignored SQLite database
+`data/whistleblower/mlflow.db` (or `MLFLOW_TRACKING_URI`), with one parent sanity run and one nested run per
 checkpoint containing immutable identifiers, model/prompt parameters, timing,
 validity/report metrics, and request/result artifacts. Normal resume skips any
 already recorded checkpoint; `--force` requires a new results path to preserve
