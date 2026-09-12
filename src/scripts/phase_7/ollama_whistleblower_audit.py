@@ -291,9 +291,10 @@ class MLflowLogger:
     def log_checkpoint(self, result: dict[str, Any], request: dict[str, Any]) -> None:
         if not self.enabled:
             return
+        parse_result = result.get("parse_result", {"valid": True, "kind": "unparsed"})
         with self.mlflow.start_run(run_name=result["checkpoint_id"], nested=True):
-            self.mlflow.log_params({"checkpoint_id": result["checkpoint_id"], "pair_id": result["pair_id"], "cohort": result["cohort"], "model": result["request_config"]["model"], "prompt_version": PROMPT_VERSION})
-            self.mlflow.log_metrics({"elapsed_seconds": result["elapsed_seconds"], "output_valid": float(result["parse_result"]["valid"]), "reported": float(result["parse_result"]["kind"] == "report")})
+            self.mlflow.log_params({"checkpoint_id": result["checkpoint_id"], "pair_id": result["pair_id"], "cohort": result["cohort"], "model": result["request_config"]["model"], "prompt_version": result["request_config"].get("prompt_version", PROMPT_VERSION)})
+            self.mlflow.log_metrics({"elapsed_seconds": result["elapsed_seconds"], "output_valid": float(parse_result["valid"]), "reported": float(parse_result["kind"] == "report")})
             self.mlflow.log_dict(request, "request.json")
             self.mlflow.log_dict(result, "result.json")
             # A root LLM span is what populates MLflow's GenAI Traces view.
@@ -311,7 +312,7 @@ class MLflowLogger:
                     },
                 ) as span:
                     span.set_inputs({"model": request["model"], "messages": request["messages"], "stream": False})
-                    span.set_outputs({"raw_response": result["raw_response"], "parse_result": result["parse_result"], "status": result["status"]})
+                    span.set_outputs({"raw_response": result["raw_response"], "parse_result": parse_result, "status": result["status"]})
 
     def close(self) -> None:
         if self.enabled and self.parent is not None:

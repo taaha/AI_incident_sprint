@@ -12,3 +12,6 @@ data/whistleblower/mlruns/
 data/whistleblower/mlflow.db
 data/whistleblower/mlflow.db-shm
 data/whistleblower/mlflow.db-wal
+
+# Local MLflow artifact store used by Phase 7 diagnostic runs.
+mlruns/
