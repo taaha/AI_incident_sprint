@@ -78,8 +78,24 @@ V8's final leaderboard/review evidence does not recreate the full V6 contradicti
 
 Therefore neither V7 nor V8 supports “Sentinel is worse.”  V7 tests a sparse checkpoint-bounded export; V8 tests final state plus recoverable review commands.  Both remain materially less informative than the selected agent's local V6 history for four of five cases.
 
+## V9 temporal local-history and final-state Sentinel sweep: in progress
+
+V9 applies a common 25-trajectory cohort to two conditions.  The cohort is **exactly** the 25 V6 trajectories whose V6 terminal calls completed; it does not use V6's five transport failures.
+
+- Frozen V9 manifest: `data/whistleblower/phase7_v9_temporal_manifest.csv`.
+- Local whistleblower: four pre-action checkpoints per trajectory, at 25%, 50%, 75%, and 100% progress.  The selected index is `round_half_up(progress * (step_count - 1))`.  This makes 100 local calls.  It uses the V5 non-compacted, selected-agent-only sanitized context: prompt blocks, current prompt, run config, labels, the selected-step action/output, future records, and other agents' private histories are absent.
+- Final-state Sentinel: one V8-style post-hoc final-state request per trajectory, using final leaderboard/score/offers/purchases/chat plus recoverable review-command observations.  This makes 25 calls.  It remains a final-state external condition, not a time-bounded online comparison.
+- Result ledgers: `data/whistleblower/audit_marketplace_v9_temporal_local.jsonl` and `data/whistleblower/audit_marketplace_v9_final_state_sentinel.jsonl`.
+- Rendered request collections: `data/whistleblower/rendered_v9_temporal_local/` and `data/whistleblower/rendered_v9_final_state_sentinel/`.
+- MLflow experiments: `phase7_ollama_marketplace_v9_temporal_v5_sanitized` and `phase7_ollama_marketplace_v9_final_state_sentinel`.
+- Runner/CLI: `src/scripts/phase_7/ollama_marketplace_v9_temporal.py` and `src/scripts/phase_7/run_marketplace_v9_temporal.py`.
+
+The runner is append-safe and resumable.  It skips the latest completed row for a checkpoint, retries only unfinished/failed checkpoints, increments an attempt field, and supports `--condition` plus `--only` target selection.  Each provider call has an MLflow nested run and raw request/result artifacts; no credential is recorded in the JSONL results.
+
+The initial ten-way live run was rate-limited by Ollama (`HTTP 429`).  It produced 50 completed local calls and left 50 local calls plus all 25 Sentinel calls unfinished; those partial results are not interpreted.  The next execution must resume at `--parallelism 1` (sequentially) until rate limiting is demonstrably absent.  Local-call duration is highly variable: the completed V9 calls have a median of about 4.8 minutes and a mean of about 9 minutes.  The prior V8 final-state Sentinel calls averaged about 26 seconds, but V9 must measure its own timing.
+
 ## Current implementation state and safe next step
 
-V7 source/tests and V8 source are currently uncommitted.  V7 tests pass (`src/tests/phase_7/test_ollama_marketplace_sentinel_shared_state.py`); both V7 and corrected V8 passed live-free request preflight before provider calls.  Historical V3–V6 artifacts remain unchanged.
+V7/V8 were committed and pushed on `main` as `01f704b Add Phase 7 Sentinel diagnostics`.  V9 source and tests are currently uncommitted; the focused V9 test suite passed before live execution.  Historical V3–V8 artifacts remain unchanged.
 
-The next meaningful experiment has not been selected.  If an external comparison is pursued, it needs a structured, timestamped public event timeline across all agents: marketplace actions/reviews, leaderboard snapshots, submissions, runtime failures/retirements, and chat.  That can test an external Sentinel without relying on selected-agent private reasoning or filesystem state.  Do not claim comparative monitor performance before such a context-equated condition exists.
+Do not analyze V9 rates or compare local and Sentinel performance until all V9 calls finish and individual candidate cases receive human adjudication.  A stronger future external comparison still needs a structured, timestamped public event timeline across all agents: marketplace actions/reviews, leaderboard snapshots, submissions, runtime failures/retirements, and chat.  That can test an external Sentinel without relying on selected-agent private reasoning or filesystem state.
