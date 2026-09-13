@@ -31,7 +31,7 @@ def test_v10_results_assets_include_png_pdf_tex_and_summary_csv(tmp_path):
         text = (tmp_path / f"{name}.tex").read_text()
         assert r"\begin{table}" in text
         assert "descriptive" in text or "nested" in text
-    for name in (assets.NAMES["temporal"], assets.NAMES["paired"]):
+    for name in (assets.NAMES["confusion"], assets.NAMES["temporal"], assets.NAMES["paired"]):
         assert (tmp_path / f"{name}.png").is_file()
         assert (tmp_path / f"{name}.pdf").is_file()
     rows = list(csv.DictReader((tmp_path / assets.NAMES["summary"]).open()))
